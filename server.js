@@ -131,8 +131,11 @@ async function createGitHubRepo(repoName) {
       name: repoName,
       description: 'Auto-generated deployment',
       public: true,
-      auto_init: false
+      auto_init: true
     });
+    
+    // Wait for repo initialization
+    await new Promise(resolve => setTimeout(resolve, 3000));
     return repo;
   } catch (error) {
     if (error.status === 422) {
@@ -142,12 +145,12 @@ async function createGitHubRepo(repoName) {
         owner: GITHUB_USERNAME,
         repo: repoName
       });
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 3000));
       return await octokit.repos.createForAuthenticatedUser({
         name: repoName,
         description: 'Auto-generated deployment',
         public: true,
-        auto_init: false
+        auto_init: true
       });
     }
     throw error;
@@ -156,6 +159,20 @@ async function createGitHubRepo(repoName) {
 
 async function pushCodeToRepo(repoName, files, brief) {
   console.log(`Pushing code to ${repoName}`);
+
+  // Get the default branch reference
+  const { data: refs } = await octokit.git.getRef({
+    owner: GITHUB_USERNAME,
+    repo: repoName,
+    ref: 'heads/main'
+  });
+
+  // Get the current commit
+  const { data: currentCommit } = await octokit.git.getCommit({
+    owner: GITHUB_USERNAME,
+    repo: repoName,
+    commit_sha: refs.object.sha
+  });
 
   // Create blobs for each file
   const blobs = {};
@@ -178,23 +195,24 @@ async function pushCodeToRepo(repoName, files, brief) {
       mode: '100644',
       type: 'blob',
       sha
-    }))
+    })),
+    base_tree: currentCommit.tree.sha
   });
 
   // Create commit
   const commit = await octokit.git.createCommit({
     owner: GITHUB_USERNAME,
     repo: repoName,
-    message: `Initial deployment: ${brief.substring(0, 50)}...`,
+    message: `Deploy: ${brief.substring(0, 50)}...`,
     tree: tree.data.sha,
-    parents: []
+    parents: [refs.object.sha]
   });
 
   // Update main branch
-  await octokit.git.createRef({
+  await octokit.git.updateRef({
     owner: GITHUB_USERNAME,
     repo: repoName,
-    ref: 'refs/heads/main',
+    ref: 'heads/main',
     sha: commit.data.sha
   });
 
